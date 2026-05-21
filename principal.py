@@ -1,6 +1,7 @@
 import sys
-import simpy as sp
+import sympy as sp
 from unidimensionais.bissecao import bissecao
+from utils import criar_phi_parametrizada, calcular_direcao
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget,
                              QCheckBox, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
                              QPushButton, QTextEdit, QGroupBox, QComboBox,
@@ -14,7 +15,6 @@ class ModuloBissecao(QWidget):
         super().__init__()
         self.symbols = []
         self.f_sym = None
-        self.gradient_sym = None
         self.init_ui()
         
     def init_ui(self):
@@ -48,11 +48,11 @@ class ModuloBissecao(QWidget):
         self.method_container.setVisible(False)
         func_layout.addWidget(self.method_container)
 
-        self.ponto_label = QLabel("Ponto inicial x0:")
+        self.ponto_label = QLabel("Ponto inicial:")
         self.ponto_label.setVisible(False)
         func_layout.addWidget(self.ponto_label)
         self.inicial_input = QLineEdit()
-        self.inicial_input.setPlaceholderText("Ex: 0.5")
+        self.inicial_input.setPlaceholderText("Ex:[0.5 6 8]")
         self.inicial_input.setVisible(False)
         func_layout.addWidget(self.inicial_input)
         
@@ -65,17 +65,23 @@ class ModuloBissecao(QWidget):
         self.params_layout = QGridLayout()
         
         # Parâmetros comuns
-        self.params_layout.addWidget(QLabel("Tolerância:"), 0, 0)
-        self.tol_input = QDoubleSpinBox()
-        self.tol_input.setRange(1e-12, 1e-2)
-        self.tol_input.setValue(1e-6)
-        self.params_layout.addWidget(self.tol_input, 0, 1)
+        self.params_layout.addWidget(QLabel("Tolerância (10^):"), 0, 0)
+        self.tol_expoente_input = QSpinBox()  # Usando SpinBox para expoente
+        self.tol_expoente_input.setRange(-15, -1)  # De 10^-15 até 10^-1
+        self.tol_expoente_input.setValue(-6)  # Padrão: 10^-6
+        self.tol_expoente_input.setToolTip("Digite o expoente da tolerância\nExemplo: -6 = 10⁻⁶")
+        self.params_layout.addWidget(self.tol_expoente_input, 0, 1)
         
-        self.params_layout.addWidget(QLabel("Max iterações:"), 0, 2)
+        # Mostrar o valor real da tolerância
+        self.tol_valor_label = QLabel("= 1.00e-06")
+        self.tol_valor_label.setStyleSheet("color: gray;")
+        self.params_layout.addWidget(self.tol_valor_label, 0, 2)
+        
+        self.params_layout.addWidget(QLabel("Max iterações:"), 0, 3)
         self.max_iter_input = QSpinBox()
         self.max_iter_input.setRange(1, 1000)
         self.max_iter_input.setValue(100)
-        self.params_layout.addWidget(self.max_iter_input, 0, 3)
+        self.params_layout.addWidget(self.max_iter_input, 0, 4)
         
         # Parâmetros específicos da bisseção
         self.params_layout.addWidget(QLabel("Intervalo a (α):"), 1, 0)
@@ -115,6 +121,15 @@ class ModuloBissecao(QWidget):
         self.checkbox.toggled.connect(self.toggle_parametrizacao)
         self.calc_btn.clicked.connect(self.calcular_alpha)  # Conecta o botão
 
+        # Conectar evento para atualizar o label da tolerância
+        self.tol_expoente_input.valueChanged.connect(self.atualizar_label_tolerancia)
+
+    def atualizar_label_tolerancia(self):
+        """Atualiza o label que mostra o valor real da tolerância"""
+        expoente = self.tol_expoente_input.value()
+        valor = 10 ** expoente
+        self.tol_valor_label.setText(f"= {valor:.2e}")
+
     def toggle_parametrizacao(self, checked):
         """Mostra ou esconde campos de parametrização baseado no estado do checkbox"""
         self.method_label.setVisible(checked)
@@ -129,9 +144,6 @@ class ModuloBissecao(QWidget):
         
         #Pega todos os símbolos livres na expressão
         self.symbols = sorted(list(expr.free_symbols), key=str)
-
-        # Filtrar constantes (n, e) se necessário
-        # self.symbols = [s for s in self.symbols if not s.is_constante()]
 
         # print(f"Variáveis detectadas: {self.symbols}")
         return self.symbols
@@ -151,36 +163,16 @@ class ModuloBissecao(QWidget):
             print(f"Erro: {e}")
             return False
     
-    def criar_phi_parametrizada(self, ponto_atual, direcao):
-        """
-        Cria φ(α) = f(x + α*d)
-        ponto_atual: dict com valores {x1: 0.5, x2: 1.0, ...}
-        direcao: dict com direção {x1: d1, x2: d2, ...}
-        """
-        alpha = sp.Symbol('α')
-        
-        # Cria ponto parametrizado: x + α*d
-        subs_dict = {}
-        for var in self.symbols:
-            x0 = ponto_atual.get(str(var), 0)
-            d = direcao.get(str(var), 0)
-            subs_dict[var] = x0 + alpha * d
-        
-        # Substitui na função
-        phi_sym = self.f_sym.subs(subs_dict)
-        
-        # Retorna função numérica de α
-        return sp.lambdify(alpha, phi_sym, 'numpy')
-
     def calcular_alpha(self):
-        """Executa o método escolhido para encontrar α*"""
+        """Executa a bisseção para encontrar α*"""
         try:
             # Atualiza a função APENAS quando clica no botão
             if not self.atualizar_funcao():
                 self.results_text.setText("Erro: Função inválida. Verifique a sintaxe.")
                 return
             
-            tol = self.tol_input.value()
+            tol = self.tol_expoente_input.value()
+            tol = 10 ** (tol)
             max_iter = self.max_iter_input.value()
             
             # Limpa a área de resultados
@@ -194,34 +186,168 @@ class ModuloBissecao(QWidget):
                 self.results_text.setText("Erro: 'a' deve ser menor que 'b' no intervalo de busca.")
                 return
             
+            # Variáveis para armazenar informações da parametrização
+            phi_sym_expr = None
+            parametrizacao_info = None
+            
             if self.checkbox.isChecked():
-                ponto_atual = {'x': float(self.inicial_input.text()) if self.inicial_input.text() else 0}
-                direcao = {'x': 1.0}  # Direção padrão
-                phi_function = self.criar_phi_parametrizada(ponto_atual, direcao)
+                pontos_texto = self.inicial_input.text().strip()
+
+                if not pontos_texto:
+                    self.results_text.setText("Erro: Ponto inicial não foi informado.")
+                    return
+
+                try:
+                    pontos_texto = pontos_texto.strip('[]')
+                    pontos = [float(x.strip()) for x in pontos_texto.split()]
+
+                    if not pontos:
+                        self.results_text.setText("Erro: Nenhum valor válido encontrado no ponto inicial.")
+                        return
+                    
+                    # VERIFICA SE O NÚMERO DE PONTOS CORRESPONDE ÀS VARIÁVEIS
+                    if len(pontos) != len(self.symbols):
+                        self.results_text.setText(
+                            f"Erro: Número de pontos ({len(pontos)}) não corresponde "
+                            f"ao número de variáveis ({len(self.symbols)}).\n"
+                            f"Variáveis detectadas: {', '.join(str(s) for s in self.symbols)}\n"
+                            f"Exemplo de ponto inicial para {len(self.symbols)} variável(is): "
+                            f"{' '.join(['0']*len(self.symbols))}"
+                        )
+                        return
+
+                    metodo = self.method_combo.currentText()
+                    direcao, info_direcao = calcular_direcao(
+                        metodo, self.f_sym, self.symbols, pontos
+                    )
+                    
+                    # Mostra informações da direção
+                    self.results_text.append(info_direcao['descricao'])
+                    if 'gradiente' in info_direcao:
+                        self.results_text.append(f"Gradiente: {info_direcao['gradiente']}")
+                    
+                    # CRIA φ(α) PARAMETRIZADA - AGORA RETORNA 3 VALORES
+                    phi_function, phi_sym_expr, expressoes = criar_phi_parametrizada(
+                        pontos, direcao, self.symbols, self.f_sym
+                    )
+                    
+                    # GUARDA INFORMAÇÕES PARA EXIBIÇÃO
+                    parametrizacao_info = {
+                        'pontos': pontos,
+                        'direcao': direcao,
+                        'expressoes': expressoes,
+                        'phi_simbolica': phi_sym_expr
+                    }
+                    
+                    # TESTA A FUNÇÃO CRIADA COM UM VALOR DE α
+                    try:
+                        test_alpha = (a + b) / 2
+                        test_value = phi_function(test_alpha)
+                        if not isinstance(test_value, (int, float)):
+                            raise ValueError(f"Função retornou {type(test_value)} em vez de número")
+                    except Exception as e:
+                        self.results_text.setText(f"Erro: Função φ(α) não retornou um valor numérico válido.\nDetalhe: {str(e)}")
+                        return
+                    
+                except ValueError as e:
+                    self.results_text.setText(f"Erro: Não foi possível converter o ponto inicial em números reais.\n"
+                                f"Certifique-se de usar números separados por espaço.\n"
+                                f"Exemplo: '0.5 6 8' ou '[0.5 6 8]'\n"
+                                f"Erro detalhado: {str(e)}")
+                    return
+                except Exception as e:
+                    self.results_text.setText(f"Erro ao parametrizar a função:\n{str(e)}")
+                    return
+                
             else:
+                # CASO SEM PARAMETRIZAÇÃO (apenas 1 variável)
+                if len(self.symbols) != 1:
+                    self.results_text.setText(
+                        f"Erro: Função com {len(self.symbols)} variáveis detectadas.\n"
+                        f"Marque 'Parametrizar a função' para usar múltiplas variáveis."
+                    )
+                    return
+                
                 # Cria uma função phi que usa f_sym já atualizado
                 def phi_function(alpha):
-                    if not self.f_sym or not self.symbols:
+                    try:
+                        if not self.f_sym or not self.symbols:
+                            return float('inf')
+                        # Avalia f(α) - assume primeira variável é α
+                        return float(self.f_sym.subs({self.symbols[0]: alpha}))
+                    except:
                         return float('inf')
-                    # Avalia f(α) - assume primeira variável é α
-                    return float(self.f_sym.subs({self.symbols[0]: alpha}))
 
+            # EXECUTA A BISSEÇÃO
             resultado = bissecao(phi_function, a, b, tol, max_iter)
-            self.exibir_resultados_bissecao(resultado)
+            
+            # EXIBE OS RESULTADOS COM A PARAMETRIZAÇÃO
+            self.exibir_resultados_bissecao(resultado, parametrizacao_info)
                 
         except Exception as e:
             self.results_text.setText(f"Erro durante o cálculo: {str(e)}")
 
-    def exibir_resultados_bissecao(self, resultado):
+    def exibir_resultados_bissecao(self, resultado, parametrizacao_info=None):
         """Formata e exibe os resultados da bisseção"""
         texto = "=" * 60 + "\n"
         texto += f"{'RESULTADOS DO MÉTODO DA BISSEÇÃO':^60}\n"
         texto += "=" * 60 + "\n\n"
         
+        # EXIBE INFORMAÇÕES DA PARAMETRIZAÇÃO SE DISPONÍVEL
+        if parametrizacao_info:
+            texto += "PARAMETRIZAÇÃO DA FUNÇÃO\n"
+            texto += "-" * 60 + "\n"
+            texto += f"Função original: f({', '.join(str(s) for s in self.symbols)}) = {self.f_sym}\n\n"
+            
+            texto += "Ponto inicial x₀:\n"
+            for i, var in enumerate(self.symbols):
+                texto += f"  {var}₀ = {parametrizacao_info['pontos'][i]:.6f}\n"
+            
+            texto += "\nDireção de busca d:\n"
+            for i, var in enumerate(self.symbols):
+                texto += f"  d_{var} = {parametrizacao_info['direcao'][i]:.6f}\n"
+            
+            texto += "\nParametrização x(α) = x₀ + α·d:\n"
+            for expr in parametrizacao_info['expressoes']:
+                texto += f"  {expr}\n"
+            
+            texto += f"\nφ(α) = {parametrizacao_info['phi_simbolica']}\n"
+            
+            # Expande a expressão se possível
+            try:
+                expanded = sp.expand(parametrizacao_info['phi_simbolica'])
+                if expanded != parametrizacao_info['phi_simbolica']:
+                    texto += f"φ(α) expandido = {expanded}\n"
+            except:
+                pass
+            
+            texto += "\n" + "=" * 60 + "\n\n"
+        
         # Resultados principais
+        texto += "RESULTADOS DA OTIMIZAÇÃO\n"
+        texto += "-" * 60 + "\n"
         texto += f"α* (comprimento de passo ótimo): {resultado['alpha']:.10f}\n"
         texto += f"φ(α*): {resultado['phi_alpha']:.10f}\n"
-        texto += f"Convergência: {'Sim' if resultado['convergiu'] else 'Não'}\n"
+        
+        # Se temos parametrização, mostra também o ponto ótimo x*
+        if parametrizacao_info:
+            texto += "\nPonto ótimo x* = x₀ + α*·d:\n"
+            for i, var in enumerate(self.symbols):
+                x_otimo = parametrizacao_info['pontos'][i] + resultado['alpha'] * parametrizacao_info['direcao'][i]
+                texto += f"  {var}* = {x_otimo:.10f}\n"
+            
+            # Verifica se o ponto ótimo satisfaz a função original
+            try:
+                f_otimo = float(self.f_sym.subs({
+                    self.symbols[i]: parametrizacao_info['pontos'][i] + resultado['alpha'] * parametrizacao_info['direcao'][i]
+                    for i in range(len(self.symbols))
+                }))
+                texto += f"\nVerificação: f(x*) = {f_otimo:.10f}\n"
+                texto += f"Diferença |f(x*) - φ(α*)| = {abs(f_otimo - resultado['phi_alpha']):.2e}\n"
+            except:
+                pass
+        
+        texto += f"\nConvergência: {'Sim' if resultado['convergiu'] else 'Não'}\n"
         texto += f"Iterações realizadas: {resultado['iteracoes']}\n\n"
         
         # Tabela de histórico
