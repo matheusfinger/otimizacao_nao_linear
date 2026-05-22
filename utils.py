@@ -244,7 +244,7 @@ def calcular_direcao_quasi_newton(f_sym, simbolos, pontos):
         info: dicionário com informações adicionais
     """
     gradient_sym = calcular_gradiente_simbolico(f_sym, simbolos)
-    grad = avaliar_gradiente_numerico(simbolos, pontos)
+    grad = avaliar_gradiente_numerico(gradient_sym, simbolos, pontos)
     direcao = [-g for g in grad]
     
     # Normaliza a direção para evitar passos muito grandes
@@ -286,7 +286,7 @@ def calcular_direcao(metodo, f_sym, simbolos, pontos):
         return calcular_direcao_newton(f_sym, simbolos, pontos)
     
     elif metodo == "quasi-newton":
-        return calcular_direcao_quasi_newton(simbolos, pontos)
+        return calcular_direcao_quasi_newton(f_sym, simbolos, pontos)
     
     else:
         # Direção padrão
