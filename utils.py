@@ -179,7 +179,7 @@ def calcular_direcao_gradiente(f_sym, simbolos, pontos):
     return direcao, info
 
 
-def calcular_direcao_newton(f_sym, gradient_sym, hessian_sym, simbolos, pontos):
+def calcular_direcao_newton(f_sym, simbolos, pontos):
     """
     Calcula a direção usando método de Newton: d = -H⁻¹∇f(x)
     
@@ -194,8 +194,10 @@ def calcular_direcao_newton(f_sym, gradient_sym, hessian_sym, simbolos, pontos):
         direcao: lista com a direção de busca
         info: dicionário com informações adicionais
     """
+    gradient_sym = calcular_gradiente_simbolico(f_sym, simbolos)
     grad = avaliar_gradiente_numerico(gradient_sym, simbolos, pontos)
-    hessiana = avaliar_hessiana_numerica(hessian_sym, simbolos, pontos)
+    hessiana_sym = calcular_hessiana_simbolica(f_sym, simbolos)
+    hessiana = avaliar_hessiana_numerica(hessiana_sym, simbolos, pontos)
     
     try:
         # Converte para numpy para resolver o sistema linear
