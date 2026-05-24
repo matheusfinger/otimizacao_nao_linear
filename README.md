@@ -1,6 +1,6 @@
 # Otimização Não-Linear
 
-Ferramenta com interface gráfica desenvolvida em grupo para a disciplina de Programação Não-Linear. O sistema permite realizar análises e otimizações de funções matemáticas, incluindo a parametrização de funções multivariáveis em funções unidimensionais para busca de passo ótimo (α).
+Ferramenta com interface gráfica desenvolvida em grupo para a disciplina de Programação Não-Linear. O sistema permite realizar análises e otimizações de funções matemáticas, incluindo a parametrização de funções multivariáveis em funções unidimensionais para busca de passo ótimo (α).  O manual do Usuário pode ser acessado em https://drive.google.com/file/d/1GCc2Cw3YyxcCMo9vukcQCb193vWfukRy/view?usp=sharing.
 
 ## Funcionalidades Atuais
 * Parametrização simbólica de funções multivariáveis $\phi(\alpha) = f(x_0 + \alpha d)$.
