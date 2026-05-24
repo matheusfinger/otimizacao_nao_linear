@@ -2,6 +2,7 @@ import sys
 import sympy as sp
 from unidimensionais.bissecao import bissecao
 from unidimensionais.newton import newton
+from unidimensionais.wolfe import wolfe, criar_phi_e_derivada
 from utils import criar_phi_parametrizada, calcular_direcao
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QTabWidget, QWidget,
                              QCheckBox, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
@@ -56,15 +57,15 @@ class ModuloNewton(QWidget):
         self.inicial_input.setPlaceholderText("Ex:[0.5 6 8]")
         self.inicial_input.setVisible(False)
         func_layout.addWidget(self.inicial_input)
-        
+
         func_group.setLayout(func_layout)
         layout.addWidget(func_group)
-    
-        
+
+
         # Grupo de parâmetros
         self.params_group = QGroupBox("Parâmetros do Método")
         self.params_layout = QGridLayout()
-        
+
         # Parâmetros comuns
         self.params_layout.addWidget(QLabel("Tolerância (10^):"), 0, 0)
         self.tol_expoente_input = QSpinBox()  # Usando SpinBox para expoente
@@ -72,18 +73,18 @@ class ModuloNewton(QWidget):
         self.tol_expoente_input.setValue(-6)  # Padrão: 10^-6
         self.tol_expoente_input.setToolTip("Digite o expoente da tolerância\nExemplo: -6 = 10⁻⁶")
         self.params_layout.addWidget(self.tol_expoente_input, 0, 1)
-        
+
         # Mostrar o valor real da tolerância
         self.tol_valor_label = QLabel("= 1.00e-06")
         self.tol_valor_label.setStyleSheet("color: gray;")
         self.params_layout.addWidget(self.tol_valor_label, 0, 2)
-        
+
         self.params_layout.addWidget(QLabel("Max iterações:"), 0, 3)
         self.max_iter_input = QSpinBox()
         self.max_iter_input.setRange(1, 1000)
         self.max_iter_input.setValue(100)
         self.params_layout.addWidget(self.max_iter_input, 0, 4)
-        
+
         # Parâmetros específicos de Newton
         self.params_layout.addWidget(QLabel("Chute inicial para α:"), 1, 0)
         self.chute_inicial_input = QDoubleSpinBox()
@@ -133,10 +134,10 @@ class ModuloNewton(QWidget):
         self.inicial_input.setVisible(checked)
 
     def detectar_variaveis(self, expressao_str):
-        """Detecta automaticamente todas as variáveis na expressão"""    
+        """Detecta automaticamente todas as variáveis na expressão"""
         # Cria um símbolo para análise
         expr = sp.sympify(expressao_str)
-        
+
         #Pega todos os símbolos livres na expressão
         self.symbols = sorted(list(expr.free_symbols), key=str)
 
@@ -157,7 +158,7 @@ class ModuloNewton(QWidget):
         except Exception as e:
             print(f"Erro: {e}")
             return False
-    
+
     def calcular_alpha(self):
         """Executa Newton para encontrar α*"""
         try:
@@ -210,17 +211,17 @@ class ModuloNewton(QWidget):
                     direcao, info_direcao = calcular_direcao(
                         metodo, self.f_sym, self.symbols, pontos
                     )
-                    
-                    # Mostra informações da direção
+
+                    # Mostra informações da direção calculada
                     self.results_text.append(info_direcao['descricao'])
                     if 'gradiente' in info_direcao:
                         self.results_text.append(f"Gradiente: {info_direcao['gradiente']}")
-                    
+
                     # Cria φ(α) parametrizada
                     phi_function, phi_sym_expr, expressoes = criar_phi_parametrizada(
                         pontos, direcao, self.symbols, self.f_sym
                     )
-                    
+
                     # Guarda infos para exibição
                     parametrizacao_info = {
                         'pontos': pontos,
@@ -228,7 +229,7 @@ class ModuloNewton(QWidget):
                         'expressoes': expressoes,
                         'phi_simbolica': phi_sym_expr
                     }
-                    
+
                     # TESTA A FUNÇÃO CRIADA COM UM VALOR DE α
                     try:
                         test_alpha = (ponto_inicial)
@@ -747,8 +748,349 @@ class ModuloBissecao(QWidget):
         self.results_text.setText(texto)
 
 class ModuloWolfe(QWidget):
-    """Módulo para condições de Wolfe"""
-    #TODO: Implementar interface para condições de Wolfe
+    """Módulo para busca de passo com condições de Wolfe"""
+
+    def __init__(self):
+        super().__init__()
+        self.symbols = []
+        self.f_sym = None
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout()
+
+        func_group = QGroupBox("Digite a função")
+        func_layout = QVBoxLayout()
+        self.func_input = QLineEdit()
+        self.func_input.setPlaceholderText("Ex: x**3 + x**2 + 2")
+        func_layout.addWidget(QLabel("Função a ser analisada:"))
+        self.checkbox = QCheckBox('Parametrizar a função', self)
+        func_layout.addWidget(self.func_input)
+        func_layout.addWidget(self.checkbox)
+
+        self.method_label = QLabel("Escolha o método para parametrizar a função")
+        self.method_label.setVisible(False)
+        func_layout.addWidget(self.method_label)
+
+        container_widget = QWidget()
+        container_layout = QHBoxLayout(container_widget)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        self.method_combo = QComboBox()
+        self.method_combo.addItems(["Gradiente", "Newton", "Quasi-Newton"])
+        container_layout.addWidget(self.method_combo, 1)
+        container_layout.addStretch(1)
+        self.method_container = container_widget
+        self.method_container.setVisible(False)
+        func_layout.addWidget(self.method_container)
+
+        self.ponto_label = QLabel("Ponto inicial:")
+        self.ponto_label.setVisible(False)
+        func_layout.addWidget(self.ponto_label)
+        self.inicial_input = QLineEdit()
+        self.inicial_input.setPlaceholderText("Ex:[0.5 6 8]")
+        self.inicial_input.setVisible(False)
+        func_layout.addWidget(self.inicial_input)
+
+        func_group.setLayout(func_layout)
+        layout.addWidget(func_group)
+
+        self.params_group = QGroupBox("Parâmetros do Método")
+        self.params_layout = QGridLayout()
+
+        self.params_layout.addWidget(QLabel("Tolerância (10^):"), 0, 0)
+        self.tol_expoente_input = QSpinBox()
+        self.tol_expoente_input.setRange(-15, -1)
+        self.tol_expoente_input.setValue(-6)
+        self.tol_expoente_input.setToolTip("Expoente da tolerância na fase zoom\nExemplo: -6 = 10⁻⁶")
+        self.params_layout.addWidget(self.tol_expoente_input, 0, 1)
+
+        self.tol_valor_label = QLabel("= 1.00e-06")
+        self.tol_valor_label.setStyleSheet("color: gray;")
+        self.params_layout.addWidget(self.tol_valor_label, 0, 2)
+
+        self.params_layout.addWidget(QLabel("Max iterações:"), 0, 3)
+        self.max_iter_input = QSpinBox()
+        self.max_iter_input.setRange(1, 1000)
+        self.max_iter_input.setValue(100)
+        self.params_layout.addWidget(self.max_iter_input, 0, 4)
+
+        self.params_layout.addWidget(QLabel("Passo inicial α₀:"), 1, 0)
+        self.alpha_init_input = QDoubleSpinBox()
+        self.alpha_init_input.setRange(1e-8, 1e6)
+        self.alpha_init_input.setValue(1.0)
+        self.params_layout.addWidget(self.alpha_init_input, 1, 1)
+
+        self.params_layout.addWidget(QLabel("α máximo:"), 1, 2)
+        self.alpha_max_input = QDoubleSpinBox()
+        self.alpha_max_input.setRange(1e-6, 1e6)
+        self.alpha_max_input.setValue(10.0)
+        self.params_layout.addWidget(self.alpha_max_input, 1, 3)
+
+        self.params_layout.addWidget(QLabel("c₁ (Armijo):"), 2, 0)
+        self.c1_input = QDoubleSpinBox()
+        self.c1_input.setRange(1e-6, 0.5)
+        self.c1_input.setDecimals(6)
+        self.c1_input.setSingleStep(0.0001)
+        self.c1_input.setValue(1e-4)
+        self.params_layout.addWidget(self.c1_input, 2, 1)
+
+        self.params_layout.addWidget(QLabel("c₂ (curvatura):"), 2, 2)
+        self.c2_input = QDoubleSpinBox()
+        self.c2_input.setRange(0.01, 0.999)
+        self.c2_input.setDecimals(4)
+        self.c2_input.setSingleStep(0.05)
+        self.c2_input.setValue(0.9)
+        self.params_layout.addWidget(self.c2_input, 2, 3)
+
+        self.wolfe_forte_check = QCheckBox("Wolfe forte (|φ'(α)| ≤ c₂|φ'(0)|)")
+        self.wolfe_forte_check.setChecked(True)
+        self.params_layout.addWidget(self.wolfe_forte_check, 3, 0, 1, 4)
+
+        self.params_group.setLayout(self.params_layout)
+        layout.addWidget(self.params_group)
+
+        btn_layout = QHBoxLayout()
+        self.calc_btn = QPushButton("Calcular α* (Wolfe)")
+        btn_layout.addWidget(self.calc_btn)
+        layout.addLayout(btn_layout)
+
+        results_group = QGroupBox("Resultados")
+        results_layout = QVBoxLayout()
+        self.results_text = QTextEdit()
+        self.results_text.setReadOnly(True)
+        self.results_text.setPlaceholderText(
+            "α* e verificação das condições de Wolfe aparecerão aqui..."
+        )
+        results_layout.addWidget(self.results_text)
+        results_group.setLayout(results_layout)
+        layout.addWidget(results_group)
+
+        self.setLayout(layout)
+
+        self.checkbox.toggled.connect(self.toggle_parametrizacao)
+        self.calc_btn.clicked.connect(self.calcular_alpha)
+        self.tol_expoente_input.valueChanged.connect(self.atualizar_label_tolerancia)
+
+    def atualizar_label_tolerancia(self):
+        expoente = self.tol_expoente_input.value()
+        valor = 10 ** expoente
+        self.tol_valor_label.setText(f"= {valor:.2e}")
+
+    def toggle_parametrizacao(self, checked):
+        self.method_label.setVisible(checked)
+        self.method_container.setVisible(checked)
+        self.ponto_label.setVisible(checked)
+        self.inicial_input.setVisible(checked)
+
+    def detectar_variaveis(self, expressao_str):
+        expr = sp.sympify(expressao_str)
+        self.symbols = sorted(list(expr.free_symbols), key=str)
+        return self.symbols
+
+    def atualizar_funcao(self):
+        expr_str = self.func_input.text()
+        try:
+            self.f_sym = sp.sympify(expr_str)
+            self.detectar_variaveis(expr_str)
+            return True
+        except Exception as e:
+            print(f"Erro: {e}")
+            return False
+
+    def calcular_alpha(self):
+        try:
+            if not self.atualizar_funcao():
+                self.results_text.setText("Erro: Função inválida. Verifique a sintaxe.")
+                return
+
+            tol = 10 ** self.tol_expoente_input.value()
+            max_iter = self.max_iter_input.value()
+            alpha_init = self.alpha_init_input.value()
+            alpha_max = self.alpha_max_input.value()
+            c1 = self.c1_input.value()
+            c2 = self.c2_input.value()
+            forte = self.wolfe_forte_check.isChecked()
+
+            if c1 >= c2:
+                self.results_text.setText(
+                    "Erro: exija 0 < c₁ < c₂ < 1.\n"
+                    f"Valores atuais: c₁ = {c1}, c₂ = {c2}"
+                )
+                return
+
+            self.results_text.clear()
+            parametrizacao_info = None
+            phi_sym_expr = None
+
+            if self.checkbox.isChecked():
+                pontos_texto = self.inicial_input.text().strip()
+                if not pontos_texto:
+                    self.results_text.setText("Erro: Ponto inicial não foi informado.")
+                    return
+
+                try:
+                    pontos_texto = pontos_texto.strip('[]')
+                    pontos = [float(x.strip()) for x in pontos_texto.split()]
+
+                    if len(pontos) != len(self.symbols):
+                        self.results_text.setText(
+                            f"Erro: Número de pontos ({len(pontos)}) não corresponde "
+                            f"às variáveis ({len(self.symbols)}).\n"
+                            f"Variáveis: {', '.join(str(s) for s in self.symbols)}"
+                        )
+                        return
+
+                    metodo = self.method_combo.currentText()
+                    direcao, info_direcao = calcular_direcao(
+                        metodo, self.f_sym, self.symbols, pontos
+                    )
+                    self.results_text.append(info_direcao['descricao'])
+                    if 'gradiente' in info_direcao:
+                        self.results_text.append(f"Gradiente: {info_direcao['gradiente']}")
+
+                    _, phi_sym_expr, expressoes = criar_phi_parametrizada(
+                        pontos, direcao, self.symbols, self.f_sym
+                    )
+                    phi_function, phi_prime_function, _ = criar_phi_e_derivada(phi_sym_expr)
+
+                    parametrizacao_info = {
+                        'pontos': pontos,
+                        'direcao': direcao,
+                        'expressoes': expressoes,
+                        'phi_simbolica': phi_sym_expr,
+                    }
+
+                    test_value = phi_function(alpha_init)
+                    if not isinstance(test_value, (int, float)):
+                        raise ValueError("φ(α) não retornou número")
+
+                except ValueError as e:
+                    self.results_text.setText(
+                        f"Erro no ponto inicial: {e}\n"
+                        "Use números separados por espaço. Ex: '0.5 6 8'"
+                    )
+                    return
+                except Exception as e:
+                    self.results_text.setText(f"Erro ao parametrizar:\n{e}")
+                    return
+
+            else:
+                if len(self.symbols) != 1:
+                    self.results_text.setText(
+                        f"Erro: {len(self.symbols)} variáveis detectadas.\n"
+                        "Marque 'Parametrizar a função' para multivariadas."
+                    )
+                    return
+
+                var_original = self.symbols[0]
+                alpha = sp.Symbol('α', real=True)
+                phi_sym_expr = self.f_sym.subs(var_original, alpha)
+                phi_function, phi_prime_function, _ = criar_phi_e_derivada(phi_sym_expr)
+
+            resultado = wolfe(
+                phi_function,
+                phi_prime_function,
+                alpha_init=alpha_init,
+                c1=c1,
+                c2=c2,
+                alpha_max=alpha_max,
+                tol=tol,
+                max_iter=max_iter,
+                forte=forte,
+            )
+
+            self.exibir_resultados_wolfe(resultado, parametrizacao_info)
+
+        except Exception as e:
+            self.results_text.setText(f"Erro durante o cálculo: {str(e)}")
+
+    def exibir_resultados_wolfe(self, resultado, parametrizacao_info=None):
+        texto = "=" * 60 + "\n"
+        texto += f"{'BUSCA POR LINHA — CONDIÇÕES DE WOLFE':^60}\n"
+        texto += "=" * 60 + "\n\n"
+
+        tipo = "forte" if resultado['condicoes'].get('forte', True) else "fraca"
+        texto += "PARÂMETROS\n"
+        texto += "-" * 60 + "\n"
+        texto += f"c₁ (Armijo) = {resultado['parametros']['c1']}\n"
+        texto += f"c₂ (curvatura) = {resultado['parametros']['c2']}\n"
+        texto += f"Tipo: Wolfe {tipo}\n\n"
+
+        if parametrizacao_info:
+            texto += "PARAMETRIZAÇÃO DA FUNÇÃO\n"
+            texto += "-" * 60 + "\n"
+            texto += f"f({', '.join(str(s) for s in self.symbols)}) = {self.f_sym}\n\n"
+            texto += "Ponto inicial x₀:\n"
+            for i, var in enumerate(self.symbols):
+                texto += f"  {var}₀ = {parametrizacao_info['pontos'][i]:.6f}\n"
+            texto += "\nDireção d:\n"
+            for i, var in enumerate(self.symbols):
+                texto += f"  d_{var} = {parametrizacao_info['direcao'][i]:.6f}\n"
+            texto += "\nx(α) = x₀ + α·d:\n"
+            for expr in parametrizacao_info['expressoes']:
+                texto += f"  {expr}\n"
+            texto += f"\nφ(α) = {parametrizacao_info['phi_simbolica']}\n"
+            try:
+                expanded = sp.expand(parametrizacao_info['phi_simbolica'])
+                if expanded != parametrizacao_info['phi_simbolica']:
+                    texto += f"φ(α) expandido = {expanded}\n"
+            except Exception:
+                pass
+            texto += "\n" + "=" * 60 + "\n\n"
+
+        texto += "RESULTADOS\n"
+        texto += "-" * 60 + "\n"
+        texto += f"φ(0) = {resultado['phi_0']:.10f}\n"
+        texto += f"φ'(0) = {resultado['phi_prime_0']:.10f}\n"
+        texto += f"α* = {resultado['alpha']:.10f}\n"
+        texto += f"φ(α*) = {resultado['phi_alpha']:.10f}\n"
+        texto += f"φ'(α*) = {resultado['phi_prime_alpha']:.10f}\n"
+
+        if parametrizacao_info:
+            texto += "\nPonto x* = x₀ + α*·d:\n"
+            for i, var in enumerate(self.symbols):
+                x_otimo = (
+                    parametrizacao_info['pontos'][i]
+                    + resultado['alpha'] * parametrizacao_info['direcao'][i]
+                )
+                texto += f"  {var}* = {x_otimo:.10f}\n"
+
+        texto += "\nVERIFICAÇÃO DAS CONDIÇÕES\n"
+        texto += "-" * 60 + "\n"
+        cond = resultado['condicoes']
+        texto += f"Direção de descida (φ'(0) < 0): {'Sim' if cond['descida'] else 'Não'}\n"
+        texto += f"Armijo: {'Sim' if cond['armijo'] else 'Não'}\n"
+        texto += f"  φ(α*) ≤ φ(0) + c₁·α*·φ'(0)\n"
+        texto += f"  limite Armijo = {cond['limite_armijo']:.10f}\n"
+        texto += f"Curvatura ({tipo}): {'Sim' if cond['curvatura'] else 'Não'}\n"
+
+        texto += f"\nConvergência: {'Sim' if resultado['convergiu'] else 'Não'}\n"
+        texto += f"Iterações registradas: {resultado['iteracoes']}\n"
+        if 'aviso' in resultado:
+            texto += f"\n⚠ {resultado['aviso']}\n"
+
+        if resultado['historico']:
+            texto += "\n" + "=" * 80 + "\n"
+            texto += f"{'HISTÓRICO':^80}\n"
+            texto += "=" * 80 + "\n\n"
+            header_deriv = "φ'(α)"
+            texto += (
+                f"{'Fase':^8} {'Iter':^5} {'α':^12} {'φ(α)':^14} "
+                f"{header_deriv:^14} {'Armijo':^8} {'Curv.':^8}\n"
+            )
+            texto += "-" * 80 + "\n"
+            for item in resultado['historico']:
+                fase = item.get('fase', '')[:8]
+                alpha_val = item.get('alpha', item.get('alpha_lo', 0))
+                texto += (
+                    f"{fase:^8} {item['iter']:^5} {alpha_val:^12.6f} "
+                    f"{item['phi_alpha']:^14.6f} {item['phi_prime']:^14.6e} "
+                    f"{'Sim' if item['armijo'] else 'Não':^8} "
+                    f"{'Sim' if item['curvatura'] else 'Não':^8}\n"
+                )
+            texto += "-" * 80 + "\n"
+
+        self.results_text.setText(texto)
 
 
 class MainWindow(QMainWindow):

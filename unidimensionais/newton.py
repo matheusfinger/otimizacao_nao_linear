@@ -14,8 +14,23 @@ def newton(phi_sym, alpha0, tol=1e-6, max_iter=100):
     Returns:
         dicionário com resultados
     """
+    # Detecta o símbolo da expressão automaticamente
+    free_syms = list(phi_sym.free_symbols)
+    if len(free_syms) == 0:
+        # Função constante: φ'=0, já está no mínimo
+        return {
+            'alpha': alpha0,
+            'phi_alpha': float(phi_sym),
+            'iteracoes': 0,
+            'historico': [],
+            'convergiu': True,
+            'aviso': 'Função constante'
+        }
+    if len(free_syms) > 1:
+        raise ValueError(f"phi_sym deve ter 1 variável livre, encontradas: {free_syms}")
+    alpha_sym = free_syms[0]
+
     # Calcula derivadas simbólicas
-    alpha_sym = sp.Symbol('α', real=True)
     phi_prime_sym = sp.diff(phi_sym, alpha_sym)      # φ'(α)
     phi_double_prime_sym = sp.diff(phi_sym, alpha_sym, 2)  # φ''(α)
     
